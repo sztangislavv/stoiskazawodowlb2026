@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Licznik sprzedaży</title>
+<meta name="theme-color" content="#1f2937">
+<style>
+:root{
+  --bg:#f3f4f6;--card:#ffffff;--text:#111827;--muted:#6b7280;--line:#e5e7eb;
+  --accent:#16a34a;--accent-2:#15803d;--accent-soft:#dcfce7;
+  --danger:#dc2626;--warn:#d97706;--head:#1f2937;--head-text:#f9fafb;
+  --chip:#eef2f7;--sel:#1f2937;--sel-text:#fff;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f141a;--card:#1a212b;--text:#eef2f6;--muted:#9aa4b2;--line:#2b3440;
+    --accent:#22c55e;--accent-2:#16a34a;--accent-soft:#12321f;
+    --head:#0b0f14;--head-text:#eef2f6;--chip:#243040;--sel:#eef2f6;--sel-text:#0f141a;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding-bottom:90px}
+header{background:var(--head);color:var(--head-text);padding:14px 16px;position:sticky;top:0;z-index:5}
+header .row{display:flex;justify-content:space-between;align-items:center;gap:12px;max-width:760px;margin:0 auto}
+header h1{font-size:18px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header small{opacity:.7;display:block;font-size:12px}
+.badge{background:var(--accent);color:#fff;border-radius:999px;padding:6px 12px;font-weight:700;white-space:nowrap}
+main{max-width:760px;margin:0 auto;padding:16px}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:5;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;color:var(--muted);padding:10px 4px 12px;font:inherit;font-size:13px;cursor:pointer}
+nav button span{display:block;font-size:20px;line-height:1.2}
+nav button.on{color:var(--accent);font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:2px solid transparent;background:var(--chip);color:var(--text);border-radius:12px;padding:12px 14px;font:inherit;font-weight:600;cursor:pointer;min-height:48px}
+.chip.on{background:var(--sel);color:var(--sel-text)}
+.sizes{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+.size{border:2px solid transparent;background:var(--chip);color:var(--text);border-radius:12px;padding:10px 4px;font:inherit;cursor:pointer;text-align:center}
+.size b{display:block;font-size:20px}
+.size small{color:var(--muted);font-size:12px}
+.size.on{background:var(--sel);color:var(--sel-text)}
+.size.on small{color:inherit;opacity:.8}
+.size.low small{color:var(--warn);font-weight:700}
+.size.out{opacity:.45}
+.size.out small{color:var(--danger)}
+.qty{display:flex;align-items:center;gap:12px}
+.qty button{width:56px;height:56px;border-radius:14px;border:0;background:var(--chip);color:var(--text);font-size:28px;cursor:pointer}
+.qty output{font-size:30px;font-weight:800;min-width:44px;text-align:center}
+.sell{width:100%;border:0;border-radius:14px;background:var(--accent);color:#fff;font:inherit;font-size:19px;font-weight:800;padding:18px;cursor:pointer;margin-top:4px}
+.sell:active{background:var(--accent-2)}
+.sell:disabled{background:var(--muted);opacity:.5;cursor:not-allowed}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.btn.small{padding:6px 10px;font-size:14px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center}
+.stat b{display:block;font-size:24px}
+.stat small{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600;font-size:13px}
+tr.total td{font-weight:800;border-bottom:0}
+.left{color:var(--accent);font-weight:700}
+.left.zero{color:var(--danger)}
+.bar{height:6px;background:var(--chip);border-radius:3px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.hist{list-style:none;margin:0;padding:0}
+.hist li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.hist li:last-child{border-bottom:0}
+.hist time{color:var(--muted);font-size:13px;display:block}
+label{display:block;font-size:14px;color:var(--muted);margin-bottom:4px}
+input[type=text],input[type=number]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+.prod{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:10px}
+.srow{display:grid;grid-template-columns:1fr 1fr 40px;gap:8px;margin-bottom:6px;align-items:center}
+.x{border:0;background:none;color:var(--danger);font-size:22px;cursor:pointer}
+.muted{color:var(--muted);font-size:14px}
+.empty{text-align:center;padding:30px 10px;color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%) translateY(20px);background:var(--head);color:var(--head-text);padding:12px 16px;border-radius:12px;display:flex;gap:14px;align-items:center;opacity:0;pointer-events:none;transition:.2s;width:max-content;max-width:calc(100% - 32px);z-index:10;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+#toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
+#toast button{background:none;border:0;color:#4ade80;font:inherit;font-weight:800;cursor:pointer}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header><div class="row">
+  <div style="min-width:0"><h1 id="hTitle">Licznik sprzedaży</h1><small id="hSub"></small></div>
+  <div class="badge" id="hBadge">0 szt.</div>
+</div></header>
+
+<main>
+  <section id="v-sell"></section>
+  <section id="v-stock" class="hide"></section>
+  <section id="v-hist" class="hide"></section>
+  <section id="v-set" class="hide"></section>
+</main>
+
+<nav>
+  <button data-v="sell" class="on"><span>🛒</span>Sprzedaż</button>
+  <button data-v="stock"><span>📦</span>Stan</button>
+  <button data-v="hist"><span>🕘</span>Historia</button>
+  <button data-v="set"><span>⚙️</span>Ustawienia</button>
+</nav>
+
+<div id="toast"><span id="toastMsg"></span><button id="toastBtn" class="hide">Cofnij</button></div>
+<input type="file" id="fileRestore" accept=".txt,.json,text/plain,application/json" class="hide">
+<input type="file" id="fileOther" accept=".txt,.json,text/plain,application/json" class="hide" multiple>
+
+<script>
+const KEY = 'licznik-koszulek-v1';
+const DEFAULT_SIZES = ['XS','S','M','L','XL','XXL'];
+const TYPES = {
+  shirt:{icon:'👕', name:'Koszulka', nameLabel:'Rodzaj koszulki', ph:'np. Czarna z logo', varLabel:'Rozmiar', addPrompt:'Nazwa rozmiaru (np. 3XL, dziecięca 128):', defaults:DEFAULT_SIZES},
+  supp:{icon:'💊', name:'Suplement', nameLabel:'Nazwa suplementu', ph:'np. Kreatyna 300 g', varLabel:'Wariant', addPrompt:'Wariant (np. smak truskawka, 60 kaps., 1 kg):', defaults:['Standard']}
+};
+const T = p => TYPES[p && p.type] || TYPES.shirt;
+const $ = id => document.getElementById(id);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (Math.round(n*100)/100).toLocaleString('pl-PL',{minimumFractionDigits:0,maximumFractionDigits:2}) + ' zł';
+
+function blank(){ return {eventName:'', products:[], sales:[], others:[]}; }
+function load(){
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.products)) return Object.assign(blank(), s); } catch(e){}
+  return blank();
+}
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch(e){ toast('⚠️ Nie udało się zapisać w przeglądarce'); }
+}
+
+let state = load();
+let view = 'sell';
+let sel = {pid:null, size:null, qty:1};
+
+/* ---------- obliczenia ---------- */
+const prod = id => state.products.find(p => p.id === id);
+function sold(st, pid, size){ return st.sales.filter(s => s.productId === pid && (size == null || s.size === size)).reduce((a,s) => a + s.qty, 0); }
+function start(p, size){ return size == null ? p.sizes.reduce((a,s) => a + (+s.qty||0), 0) : (+(p.sizes.find(s => s.size === size)||{}).qty || 0); }
+function left(p, size){ return start(p, size) - sold(state, p.id, size); }
+function totals(st){
+  let st0=0, sd=0, rev=0;
+  st.products.forEach(p => { st0 += start(p); const n = sold(st, p.id); sd += n; rev += n * (+p.price||0); });
+  return {start:st0, sold:sd, left:st0-sd, rev};
+}
+
+/* ---------- widoki ---------- */
+function render(){
+  const t = totals(state);
+  $('hTitle').textContent = state.eventName || 'Licznik sprzedaży';
+  $('hSub').textContent = state.eventName ? 'Koszulki i suplementy' : 'Ustaw nazwę zawodów w Ustawieniach';
+  $('hBadge').textContent = t.sold + ' sprzed.';
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  ['sell','stock','hist','set'].forEach(v => $('v-'+v).classList.toggle('hide', v !== view));
+  ({sell:renderSell, stock:renderStock, hist:renderHist, set:renderSet})[view]();
+}
+
+function renderSell(){
+  const el = $('v-sell');
+  if (!state.products.length){
+    el.innerHTML = `<div class="card empty"><p>Nie ma jeszcze żadnych produktów.</p>
+      <button class="btn primary" onclick="go('set')">Dodaj koszulki / suplementy</button></div>`;
+    return;
+  }
+  if (!prod(sel.pid)) sel = {pid: state.products[0].id, size:null, qty:1};
+  const p = prod(sel.pid);
+  if (sel.size && !p.sizes.some(s => s.size === sel.size)) sel.size = null;
+  if (!sel.size && p.sizes.length === 1) sel.size = p.sizes[0].size;
+  const groups = ['shirt','supp'].map(t => state.products.filter(x => T(x) === TYPES[t])).filter(g => g.length);
+
+  const chips = groups.map(g => `<div class="chips" style="margin-bottom:8px">` + g.map(x =>
+    `<button class="chip ${x.id===sel.pid?'on':''}" onclick="pickProd('${x.id}')">${T(x).icon} ${esc(x.name)||'(bez nazwy)'}</button>`).join('') + `</div>`).join('');
+  const sizes = p.sizes.map(s => {
+    const l = left(p, s.size);
+    const cls = [s.size===sel.size?'on':'', l<=0?'out':(l<=2?'low':'')].join(' ');
+    return `<button class="size ${cls}" onclick="pickSize('${esc(s.size)}')"><b>${esc(s.size)}</b><small>zostało ${l}</small></button>`;
+  }).join('') || `<p class="muted">Ten produkt nie ma ${T(p)===TYPES.supp?'wariantów':'rozmiarów'} — dodaj je w Ustawieniach.</p>`;
+
+  const label = sel.size ? `Sprzedaj ${sel.qty} × ${esc(p.name)} ${sel.size==='Standard'?'':esc(sel.size)}` : 'Wybierz ' + T(p).varLabel.toLowerCase();
+  const price = +p.price ? `<p class="muted" style="margin:8px 0 0;text-align:center">Do zapłaty: <b>${money(sel.qty * p.price)}</b></p>` : '';
+
+  const last = state.sales.slice(-5).reverse().map(saleRow).join('');
+
+  el.innerHTML = `
+    <div class="card"><h2>1. Produkt</h2>${chips}</div>
+    <div class="card"><h2>2. ${T(p).varLabel}</h2><div class="sizes">${sizes}</div></div>
+    <div class="card"><h2>3. Ilość</h2>
+      <div class="qty"><button onclick="chQty(-1)">−</button><output>${sel.qty}</output><button onclick="chQty(1)">+</button></div>
+    </div>
+    <button class="sell" ${sel.size?'':'disabled'} onclick="sell()">${label}</button>
+    ${price}
+    ${last ? `<div class="card" style="margin-top:14px"><h2>Ostatnie sprzedaże</h2><ul class="hist">${last}</ul></div>` : ''}`;
+}
+
+function saleRow(s){
+  const p = prod(s.productId);
+  const name = (p ? T(p).icon + ' ' + p.name : (s.productName || '?'));
+  const tm = new Date(s.ts).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
+  const day = new Date(s.ts).toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
+  return `<li><div><b>${s.qty} × ${esc(name)} ${esc(s.size)}</b><time>${day} ${tm}</time></div>
+    <button class="btn small danger" onclick="delSale('${s.id}')">Usuń</button></li>`;
+}
+
+function stockTable(st, p){
+  const rows = p.sizes.map(s => {
+    const a = +s.qty||0, b = sold(st, p.id, s.size), l = a - b;
+    const pct = a ? Math.min(100, Math.round(b/a*100)) : 0;
+    return `<tr><td>${esc(s.size)}<div class="bar"><i style="width:${pct}%"></i></div></td><td>${a}</td><td>${b}</td><td class="left ${l<=0?'zero':''}">${l}</td></tr>`;
+  }).join('');
+  const a = start(p), b = sold(st, p.id);
+  return `<table><tr><th>${T(p).varLabel}</th><th>Zabrane</th><th>Sprzed.</th><th>Zostało</th></tr>${rows}
+    <tr class="total"><td>Razem</td><td>${a}</td><td>${b}</td><td class="left">${a-b}</td></tr></table>
+    ${+p.price ? `<p class="muted" style="margin:8px 0 0">Przychód: <b>${money(b * p.price)}</b> (cena ${money(+p.price)})</p>` : ''}`;
+}
+
+function renderStock(){
+  const t = totals(state);
+  let html = `<div class="stats">
+    <div class="stat"><b>${t.sold}</b><small>sprzedane</small></div>
+    <div class="stat"><b>${t.left}</b><small>zostało</small></div>
+    <div class="stat"><b>${t.rev ? money(t.rev) : '—'}</b><small>przychód</small></div></div>`;
+  if (state.products.length) html += `<button class="sell" style="margin:0 0 14px" onclick="shareReport()">📤 Wyślij raport na czat</button>`;
+  if (!state.products.length) html += `<div class="card empty">Brak produktów — dodaj je w Ustawieniach.</div>`;
+  html += state.products.map(p => `<div class="card"><h2>${T(p).icon} ${esc(p.name)||'(bez nazwy)'}</h2>${stockTable(state,p)}</div>`).join('');
+
+  if (state.others.length){
+    html += `<h2 style="margin:22px 0 10px">Porównanie stoisk</h2>`;
+    const all = [{eventName: (state.eventName||'To stoisko') + ' (tu)', products: state.products, sales: state.sales, importedAt:null}, ...state.others];
+    html += `<div class="card"><table><tr><th>Stoisko</th><th>Sprzed.</th><th>Zostało</th><th>Przychód</th></tr>` +
+      all.map(o => { const x = totals(o); return `<tr><td>${esc(o.eventName||'?')}${o.importedAt?`<br><small class="muted">dane z ${new Date(o.importedAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small>`:''}</td><td>${x.sold}</td><td>${x.left}</td><td>${x.rev?money(x.rev):'—'}</td></tr>`; }).join('') +
+      (() => { let s=0,l=0,r=0; all.forEach(o=>{const x=totals(o);s+=x.sold;l+=x.left;r+=x.rev;}); return `<tr class="total"><td>Razem</td><td>${s}</td><td>${l}</td><td>${r?money(r):'—'}</td></tr>`; })() +
+      `</table></div>`;
+    // łącznie wg koszulki i rozmiaru
+    const map = new Map();
+    all.forEach(o => o.products.forEach(p => p.sizes.forEach(s => {
+      const k = (p.name||'').trim().toLowerCase() + '|' + s.size;
+      const r = map.get(k) || {name:T(p).icon + ' ' + p.name, size:s.size, start:0, sold:0, vl:T(p).varLabel};
+      r.start += +s.qty||0; r.sold += sold(o, p.id, s.size); map.set(k, r);
+    })));
+    const byName = {};
+    map.forEach(r => (byName[r.name] = byName[r.name] || []).push(r));
+    html += Object.entries(byName).map(([n, rs]) => `<div class="card"><h2>${esc(n)} — wszystkie stoiska</h2><table>
+      <tr><th>${rs[0].vl}</th><th>Zabrane</th><th>Sprzed.</th><th>Zostało</th></tr>
+      ${rs.map(r => `<tr><td>${esc(r.size)}</td><td>${r.start}</td><td>${r.sold}</td><td class="left ${r.start-r.sold<=0?'zero':''}">${r.start-r.sold}</td></tr>`).join('')}
+      </table></div>`).join('');
+  }
+  $('v-stock').innerHTML = html;
+}
+
+function renderHist(){
+  const list = state.sales.slice().reverse();
+  $('v-hist').innerHTML = list.length
+    ? `<div class="card"><h2>Wszystkie sprzedaże (${list.length})</h2><ul class="hist">${list.map(saleRow).join('')}</ul></div>`
+    : `<div class="card empty">Jeszcze nic nie sprzedano.</div>`;
+}
+
+function renderSet(){
+  const prods = state.products.map(p => `
+    <div class="prod">
+      <div class="grid2">
+        <div><label>${T(p).icon} ${T(p).nameLabel}</label><input type="text" value="${esc(p.name)}" placeholder="${T(p).ph}" onchange="setProd('${p.id}','name',this.value)"></div>
+        <div><label>Cena (zł)</label><input type="number" min="0" step="0.01" inputmode="decimal" value="${esc(p.price)}" placeholder="opcjonalnie" onchange="setProd('${p.id}','price',this.value)"></div>
+      </div>
+      <div class="srow"><label style="margin:0">${T(p).varLabel}</label><label style="margin:0">Zabrane szt.</label><span></span></div>
+      ${p.sizes.map((s,i) => `<div class="srow">
+        <input type="text" value="${esc(s.size)}" onchange="setSize('${p.id}',${i},'size',this.value)">
+        <input type="number" min="0" inputmode="numeric" value="${esc(s.qty)}" onchange="setSize('${p.id}',${i},'qty',this.value)">
+        <button class="x" title="Usuń rozmiar" onclick="delSize('${p.id}',${i})">×</button></div>`).join('')}
+      <div class="btns" style="margin-top:8px">
+        <button class="btn small" onclick="addSize('${p.id}')">+ ${T(p).varLabel}</button>
+        <button class="btn small danger" onclick="delProd('${p.id}')">Usuń produkt</button>
+      </div>
+    </div>`).join('');
+
+  $('v-set').innerHTML = `
+    <div class="card"><h2>Zawody / stoisko</h2>
+      <label>Nazwa (np. miasto lub nazwa zawodów)</label>
+      <input type="text" value="${esc(state.eventName)}" placeholder="np. Zawody Gdańsk" onchange="state.eventName=this.value.trim();save();render()">
+      <p class="muted">Każde stoisko używa strony na swoim telefonie — dane zapisują się na tym urządzeniu.</p>
+    </div>
+    <div class="card"><h2>Produkty zabrane na zawody</h2>
+      ${prods || '<p class="muted">Dodaj pierwszy produkt.</p>'}
+      <div class="btns">
+        <button class="btn primary" onclick="addProd('shirt')">+ 👕 Koszulka</button>
+        <button class="btn primary" onclick="addProd('supp')">+ 💊 Suplement</button>
+      </div>
+      <p class="muted" style="margin-bottom:0">Suplementy: każdy wariant (smak, gramatura) liczy się osobno. Jeśli nie ma wariantów, zostaw jeden „Standard”.</p>
+    </div>
+    <div class="card"><h2>Drugie stoisko</h2>
+      <p class="muted" style="margin-top:0">Wyślij plik ze stanem drugiemu stoisku (najlepiej przez WhatsAppa jako dokument lub mailem), a oni wczytują go u siebie — w zakładce „Stan” zobaczycie porównanie i sumę.</p>
+      <div class="btns">
+        <button class="btn primary" onclick="shareState()">📤 Wyślij stan tego stoiska</button>
+        <button class="btn" onclick="$('fileOther').click()">📥 Wczytaj plik drugiego stoiska</button>
+      </div>
+      ${state.others.length ? `<p class="muted">Wczytane: ${state.others.map(o => esc(o.eventName||'?')).join(', ')} <button class="btn small danger" onclick="if(confirm('Usunąć wczytane dane innych stoisk?')){state.others=[];save();render()}">Wyczyść</button></p>` : ''}
+    </div>
+    <div class="card"><h2>Raporty i kopia</h2>
+      <div class="btns">
+        <button class="btn primary" onclick="shareReport()">📤 Raport tekstowy na czat</button>
+        <button class="btn" onclick="csvStock()">Raport stanu (CSV/Excel)</button>
+        <button class="btn" onclick="csvSales()">Historia sprzedaży (CSV)</button>
+        <button class="btn" onclick="download(fileName('json'), JSON.stringify(exportObj(),null,2), 'application/json')">Kopia zapasowa</button>
+        <button class="btn" onclick="$('fileRestore').click()">Przywróć kopię</button>
+      </div>
+    </div>
+    <div class="card"><h2>Reset</h2>
+      <div class="btns">
+        <button class="btn danger" onclick="resetSales()">Wyzeruj sprzedaż</button>
+        <button class="btn danger" onclick="resetAll()">Usuń wszystko</button>
+      </div>
+    </div>`;
+}
+
+/* ---------- akcje: sprzedaż ---------- */
+function go(v){ view = v; render(); window.scrollTo(0,0); }
+function pickProd(id){ sel = {pid:id, size:null, qty:1}; render(); }
+function pickSize(s){ sel.size = s; render(); }
+function chQty(d){ sel.qty = Math.max(1, sel.qty + d); render(); }
+function sell(){
+  const p = prod(sel.pid); if (!p || !sel.size) return;
+  const l = left(p, sel.size);
+  if (sel.qty > l && !confirm(`Według licznika zostało tylko ${l} szt. ${p.name} ${sel.size}. Zapisać sprzedaż mimo to?`)) return;
+  const s = {id:uid(), ts:Date.now(), productId:p.id, productName:p.name, size:sel.size, qty:sel.qty};
+  state.sales.push(s); save();
+  if (navigator.vibrate) navigator.vibrate(40);
+  sel.qty = 1; sel.size = null; render();
+  toast(`✅ Sprzedano ${s.qty} × ${p.name} ${s.size==='Standard'?'':s.size}`, () => { state.sales = state.sales.filter(x => x.id !== s.id); save(); render(); toast('Cofnięto'); });
+}
+function delSale(id){
+  const s = state.sales.find(x => x.id === id); if (!s) return;
+  if (!confirm(`Usunąć sprzedaż: ${s.qty} × ${(prod(s.productId)||{}).name||s.productName} ${s.size}?`)) return;
+  state.sales = state.sales.filter(x => x.id !== id); save(); render();
+}
+
+/* ---------- akcje: ustawienia ---------- */
+function addProd(type){
+  state.products.push({id:uid(), type, name:'', price:'', sizes: TYPES[type].defaults.map(s => ({size:s, qty:0}))});
+  save(); render();
+    const lastProd = document.querySelectorAll('.prod'); if (lastProd.length) lastProd[lastProd.length-1].querySelector('input').focus();
+}
+function setProd(id, k, v){ const p = prod(id); if (!p) return; p[k] = k==='price' ? (v===''?'':Math.max(0,+v)) : v.trim(); save(); $('hTitle'); }
+function setSize(id, i, k, v){
+  const p = prod(id); if (!p) return;
+  if (k === 'size'){
+    v = v.trim(); const old = p.sizes[i].size; if (!v || v === old) return render();
+    if (p.sizes.some((s,j) => j!==i && s.size === v)){ alert('Taki ' + T(p).varLabel.toLowerCase() + ' już jest.'); return render(); }
+    p.sizes[i].size = v;
+    state.sales.forEach(s => { if (s.productId === id && s.size === old) s.size = v; });
+  } else p.sizes[i].qty = Math.max(0, parseInt(v,10) || 0);
+  save();
+}
+function addSize(id){ const p = prod(id); const name = prompt(T(p).addPrompt); if (!name || !name.trim()) return;
+  if (p.sizes.some(s => s.size === name.trim())) return alert('Taki ' + T(p).varLabel.toLowerCase() + ' już jest.');
+  p.sizes.push({size:name.trim(), qty:0}); save(); render(); }
+function delSize(id, i){ const p = prod(id); const s = p.sizes[i];
+  if (sold(state, id, s.size) && !confirm(`${T(p).varLabel} ${s.size} ma zapisaną sprzedaż. Usunąć mimo to?`)) return;
+  p.sizes.splice(i,1); save(); render(); }
+function delProd(id){ const p = prod(id);
+  if (!confirm(`Usunąć ${T(p).name.toLowerCase()} „${p.name||'(bez nazwy)'}”${sold(state,id)?' razem z jej sprzedażą':''}?`)) return;
+  state.products = state.products.filter(x => x.id !== id); state.sales = state.sales.filter(s => s.productId !== id); save(); render(); }
+function resetSales(){ if (confirm('Wyzerować całą sprzedaż? Stany początkowe zostaną.')){ state.sales = []; save(); render(); } }
+function resetAll(){ if (confirm('Usunąć WSZYSTKIE dane z tego urządzenia?') && confirm('Na pewno? Tego nie da się cofnąć.')){ state = blank(); save(); render(); } }
+
+/* ---------- raport tekstowy ---------- */
+function reportText(){
+  const t = totals(state); const d = new Date();
+  let out = `📊 ${state.eventName || 'Stoisko'} — ${d.toLocaleDateString('pl-PL')} ${d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}\n`;
+  out += `Sprzedane: ${t.sold} szt. | Zostało: ${t.left} szt.` + (t.rev ? ` | Przychód: ${money(t.rev)}` : '') + '\n';
+  state.products.forEach(p => {
+    out += `\n${T(p).icon} ${p.name || '(bez nazwy)'} — sprzedane ${sold(state,p.id)}/${start(p)}\n`;
+    p.sizes.forEach(s => { const b = sold(state,p.id,s.size), a = +s.qty||0;
+      if (a || b) out += `  ${s.size}: sprzedane ${b}, zostało ${a-b}${a-b<=0?' ❗':''}\n`; });
+  });
+  return out.trim();
+}
+async function shareReport(){
+  const text = reportText();
+  try { if (navigator.share){ await navigator.share({text}); return; } }
+  catch(e){ if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(text); toast('Raport skopiowany — wklej go na czacie'); }
+  catch(e){ prompt('Skopiuj raport:', text); }
+}
+
+/* ---------- pliki ---------- */
+function exportObj(){ return {app:'licznik-koszulek', version:1, exportedAt:Date.now(), eventName:state.eventName, products:state.products, sales:state.sales}; }
+function fileName(ext){
+  const n = (state.eventName || 'stoisko').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ł/g,'l').replace(/Ł/g,'L').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
+  const d = new Date(); const pad = x => String(x).padStart(2,'0');
+  return `sprzedaz-${n}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
+}
+function download(name, text, type){
+  const blob = new Blob([text], {type}); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+async function shareState(){
+  const name = fileName('txt'); const text = JSON.stringify(exportObj());
+  try {
+    const f = new File([text], name, {type:'text/plain'});
+    if (navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:'Stan sprzedaży: ' + (state.eventName||'stoisko')}); return; }
+  } catch(e){ if (e && e.name === 'AbortError') return; }
+  download(name, text, 'text/plain'); toast('Plik pobrany — wyślij go drugiemu stoisku');
+}
+function csv(rows){ return '\ufeff' + rows.map(r => r.map(c => { c = String(c ?? ''); return /[;"\n]/.test(c) ? '"' + c.replace(/"/g,'""') + '"' : c; }).join(';')).join('\r\n'); }
+function csvStock(){
+  const rows = [['Stoisko','Kategoria','Produkt','Rozmiar/wariant','Zabrane','Sprzedane','Zostało','Cena','Przychód']];
+  state.products.forEach(p => p.sizes.forEach(s => { const b = sold(state,p.id,s.size);
+    rows.push([state.eventName, T(p).name, p.name, s.size, +s.qty||0, b, (+s.qty||0)-b, p.price, +p.price ? String(b*p.price).replace('.',',') : '']); }));
+  download(fileName('csv').replace('.csv','-stan.csv'), csv(rows), 'text/csv;charset=utf-8');
+}
+function csvSales(){
+  const rows = [['Data','Godzina','Stoisko','Kategoria','Produkt','Rozmiar/wariant','Ilość','Wartość']];
+  state.sales.forEach(s => { const p = prod(s.productId); const d = new Date(s.ts);
+    rows.push([d.toLocaleDateString('pl-PL'), d.toLocaleTimeString('pl-PL'), state.eventName, p?T(p).name:'', p?p.name:s.productName, s.size, s.qty, p && +p.price ? String(s.qty*p.price).replace('.',',') : '']); });
+  download(fileName('csv').replace('.csv','-historia.csv'), csv(rows), 'text/csv;charset=utf-8');
+}
+function readJson(file){ return file.text().then(t => { const o = JSON.parse(t); if (!o || !Array.isArray(o.products) || !Array.isArray(o.sales)) throw new Error('zły plik'); return o; }); }
+$('fileRestore').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { const o = await readJson(f);
+    if (!confirm(`Przywrócić kopię „${o.eventName||'?'}”? Obecne dane tego stoiska zostaną zastąpione.`)) return;
+    state.eventName = o.eventName || ''; state.products = o.products; state.sales = o.sales; save(); render(); toast('Przywrócono kopię');
+  } catch(err){ alert('Nie udało się wczytać pliku: ' + err.message); }
+};
+$('fileOther').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  for (const f of files){
+    try { const o = await readJson(f);
+      const entry = {eventName:o.eventName||f.name, products:o.products, sales:o.sales, importedAt:o.exportedAt||Date.now()};
+      const i = state.others.findIndex(x => x.eventName === entry.eventName);
+      if (i >= 0) state.others[i] = entry; else state.others.push(entry);
+    } catch(err){ alert(`Nie udało się wczytać ${f.name}: ${err.message}`); }
+  }
+  save(); view = 'stock'; render(); toast('Wczytano dane drugiego stoiska');
+};
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg, undo){
+  $('toastMsg').textContent = msg; const b = $('toastBtn');
+  b.classList.toggle('hide', !undo); b.onclick = () => { $('toast').classList.remove('show'); undo && undo(); };
+  $('toast').classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => $('toast').classList.remove('show'), undo ? 5000 : 2500);
+}
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.v));
+if (!state.products.length) view = 'set';
+render();
+</script>
+</body>
+</html>
