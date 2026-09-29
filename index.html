@@ -85,6 +85,14 @@ input[type=text],input[type=number]{width:100%;padding:10px 12px;border:1px soli
 #toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%) translateY(20px);background:var(--head);color:var(--head-text);padding:12px 16px;border-radius:12px;display:flex;gap:14px;align-items:center;opacity:0;pointer-events:none;transition:.2s;width:max-content;max-width:calc(100% - 32px);z-index:10;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 #toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
 #toast button{background:none;border:0;color:#4ade80;font:inherit;font-weight:800;cursor:pointer}
+.bitem{padding:10px 0;border-bottom:1px solid var(--line)}
+.bitem:last-child{border-bottom:0;padding-bottom:0}
+.bitem:first-of-type{padding-top:0}
+.bname{font-weight:700;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.okmark{margin-left:auto;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:2px 8px;font-size:14px}
+.chip.bundle{border-color:var(--accent)}
+select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit;min-width:0}
+.brow{grid-template-columns:1fr 70px 40px}
 .hide{display:none}
 </style>
 </head>
@@ -124,10 +132,19 @@ const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => (Math.round(n*100)/100).toLocaleString('pl-PL',{minimumFractionDigits:0,maximumFractionDigits:2}) + ' zł';
+const vn = size => size === 'Standard' ? '' : size;               // nie pokazuj „Standard” w opisach
 
-function blank(){ return {eventName:'', products:[], sales:[], others:[]}; }
+function blank(){ return {eventName:'', products:[], bundles:[], sales:[], others:[]}; }
+// Stary format sprzedaży {productId,size,qty} -> nowy {lines:[...]}
+function normalize(st){
+  st.products = st.products || [];
+  st.bundles = Array.isArray(st.bundles) ? st.bundles : [];
+  st.sales = (st.sales || []).map(s => s.lines ? s :
+    {id:s.id || uid(), ts:s.ts, lines:[{productId:s.productId, productName:s.productName, size:s.size, qty:s.qty}]});
+  return st;
+}
 function load(){
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.products)) return Object.assign(blank(), s); } catch(e){}
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.products)) { const st = normalize(Object.assign(blank(), s)); st.others = (st.others||[]).map(normalize); return st; } } catch(e){}
   return blank();
 }
 function save(){
@@ -137,29 +154,65 @@ function save(){
 
 let state = load();
 let view = 'sell';
-let sel = {pid:null, size:null, qty:1};
+let sel = {kind:'p', id:null, size:null, qty:1, bs:{}};
 
 /* ---------- obliczenia ---------- */
 const prod = id => state.products.find(p => p.id === id);
-function sold(st, pid, size){ return st.sales.filter(s => s.productId === pid && (size == null || s.size === size)).reduce((a,s) => a + s.qty, 0); }
+const bundle = id => state.bundles.find(b => b.id === id);
+// ile sztuk sprzedano; mode: undefined = wszystko, 'bundle' = tylko w zestawach, 'single' = tylko pojedynczo
+function sold(st, pid, size, mode){
+  let n = 0;
+  st.sales.forEach(s => {
+    if (mode === 'bundle' && !s.bundleId) return;
+    if (mode === 'single' && s.bundleId) return;
+    s.lines.forEach(l => { if (l.productId === pid && (size == null || l.size === size)) n += l.qty; });
+  });
+  return n;
+}
 function start(p, size){ return size == null ? p.sizes.reduce((a,s) => a + (+s.qty||0), 0) : (+(p.sizes.find(s => s.size === size)||{}).qty || 0); }
 function left(p, size){ return start(p, size) - sold(state, p.id, size); }
+function saleValue(st, s){
+  if (s.bundleId){
+    const b = (st.bundles||[]).find(x => x.id === s.bundleId);
+    const price = s.price !== undefined && s.price !== '' ? +s.price : (b ? +b.price : 0);
+    return (price || 0) * (s.qty || 1);
+  }
+  return s.lines.reduce((a,l) => { const p = st.products.find(x => x.id === l.productId); return a + l.qty * (p ? (+p.price||0) : 0); }, 0);
+}
 function totals(st){
-  let st0=0, sd=0, rev=0;
-  st.products.forEach(p => { st0 += start(p); const n = sold(st, p.id); sd += n; rev += n * (+p.price||0); });
+  let st0 = 0, sd = 0, rev = 0;
+  st.products.forEach(p => { st0 += start(p); });
+  st.sales.forEach(s => { s.lines.forEach(l => sd += l.qty); rev += saleValue(st, s); });
   return {start:st0, sold:sd, left:st0-sd, rev};
+}
+function bundleSold(st, bid){ return st.sales.filter(s => s.bundleId === bid).reduce((a,s) => a + (s.qty||1), 0); }
+function bundleRev(st, bid){ return st.sales.filter(s => s.bundleId === bid).reduce((a,s) => a + saleValue(st,s), 0); }
+function lineName(l){ const p = prod(l.productId); return (p ? p.name : (l.productName || '?')) + (vn(l.size) ? ' ' + l.size : ''); }
+function saleTitle(s){
+  if (s.bundleId){ const b = bundle(s.bundleId); return `${s.qty||1} × 🎁 ${b ? b.name : (s.bundleName || 'Zestaw')}`; }
+  const l = s.lines[0]; const p = prod(l.productId);
+  return `${l.qty} × ${p ? T(p).icon + ' ' : ''}${lineName(l)}`;
 }
 
 /* ---------- widoki ---------- */
 function render(){
   const t = totals(state);
   $('hTitle').textContent = state.eventName || 'Licznik sprzedaży';
-  $('hSub').textContent = state.eventName ? 'Koszulki i suplementy' : 'Ustaw nazwę zawodów w Ustawieniach';
+  $('hSub').textContent = state.eventName ? 'Koszulki, suplementy i zestawy' : 'Ustaw nazwę zawodów w Ustawieniach';
   $('hBadge').textContent = t.sold + ' sprzed.';
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
   ['sell','stock','hist','set'].forEach(v => $('v-'+v).classList.toggle('hide', v !== view));
   ({sell:renderSell, stock:renderStock, hist:renderHist, set:renderSet})[view]();
 }
+
+function sizeButtons(p, selected, onclick){
+  return p.sizes.map(s => {
+    const l = left(p, s.size);
+    const cls = [s.size===selected?'on':'', l<=0?'out':(l<=2?'low':'')].join(' ');
+    return `<button class="size ${cls}" onclick="${onclick}('${esc(s.size)}')"><b>${esc(s.size)}</b><small>zostało ${l}</small></button>`;
+  }).join('');
+}
+function validItems(b){ return b.items.filter(it => prod(it.productId)); }
 
 function renderSell(){
   const el = $('v-sell');
@@ -168,42 +221,60 @@ function renderSell(){
       <button class="btn primary" onclick="go('set')">Dodaj koszulki / suplementy</button></div>`;
     return;
   }
-  if (!prod(sel.pid)) sel = {pid: state.products[0].id, size:null, qty:1};
-  const p = prod(sel.pid);
-  if (sel.size && !p.sizes.some(s => s.size === sel.size)) sel.size = null;
-  if (!sel.size && p.sizes.length === 1) sel.size = p.sizes[0].size;
-  const groups = ['shirt','supp'].map(t => state.products.filter(x => T(x) === TYPES[t])).filter(g => g.length);
+  const readyBundles = state.bundles.filter(b => validItems(b).length);
+  if (sel.kind === 'b' && !bundle(sel.id)) sel = {kind:'p', id:null, size:null, qty:1, bs:{}};
+  if (sel.kind === 'p' && !prod(sel.id)) sel = {kind:'p', id:state.products[0].id, size:null, qty:1, bs:{}};
 
-  const chips = groups.map(g => `<div class="chips" style="margin-bottom:8px">` + g.map(x =>
-    `<button class="chip ${x.id===sel.pid?'on':''}" onclick="pickProd('${x.id}')">${T(x).icon} ${esc(x.name)||'(bez nazwy)'}</button>`).join('') + `</div>`).join('');
-  const sizes = p.sizes.map(s => {
-    const l = left(p, s.size);
-    const cls = [s.size===sel.size?'on':'', l<=0?'out':(l<=2?'low':'')].join(' ');
-    return `<button class="size ${cls}" onclick="pickSize('${esc(s.size)}')"><b>${esc(s.size)}</b><small>zostało ${l}</small></button>`;
-  }).join('') || `<p class="muted">Ten produkt nie ma ${T(p)===TYPES.supp?'wariantów':'rozmiarów'} — dodaj je w Ustawieniach.</p>`;
+  const row = (items, fn) => items.length ? `<div class="chips" style="margin-bottom:8px">${items.map(fn).join('')}</div>` : '';
+  const pchip = x => `<button class="chip ${sel.kind==='p'&&x.id===sel.id?'on':''}" onclick="pickProd('${x.id}')">${T(x).icon} ${esc(x.name)||'(bez nazwy)'}</button>`;
+  const chips = row(state.products.filter(x => T(x)===TYPES.shirt), pchip) + row(state.products.filter(x => T(x)===TYPES.supp), pchip) +
+    row(readyBundles, b => `<button class="chip bundle ${sel.kind==='b'&&b.id===sel.id?'on':''}" onclick="pickBundle('${b.id}')">🎁 ${esc(b.name)||'(zestaw)'}</button>`);
 
-  const label = sel.size ? `Sprzedaj ${sel.qty} × ${esc(p.name)} ${sel.size==='Standard'?'':esc(sel.size)}` : 'Wybierz ' + T(p).varLabel.toLowerCase();
-  const price = +p.price ? `<p class="muted" style="margin:8px 0 0;text-align:center">Do zapłaty: <b>${money(sel.qty * p.price)}</b></p>` : '';
+  let step2, label, ready, price = 0;
+  if (sel.kind === 'p'){
+    const p = prod(sel.id);
+    if (sel.size && !p.sizes.some(s => s.size === sel.size)) sel.size = null;
+    if (!sel.size && p.sizes.length === 1) sel.size = p.sizes[0].size;
+    step2 = `<div class="card"><h2>2. ${T(p).varLabel}</h2><div class="sizes">${sizeButtons(p, sel.size, 'pickSize') ||
+      `<p class="muted">Ten produkt nie ma wariantów — dodaj je w Ustawieniach.</p>`}</div></div>`;
+    ready = !!sel.size;
+    label = ready ? `Sprzedaj ${sel.qty} × ${esc(p.name)} ${esc(vn(sel.size))}` : 'Wybierz ' + T(p).varLabel.toLowerCase();
+    price = sel.qty * (+p.price||0);
+  } else {
+    const b = bundle(sel.id);
+    const items = b.items.map((it,i) => ({it, i, p:prod(it.productId)})).filter(x => x.p);
+    items.forEach(({p,i}) => {
+      if (sel.bs[i] && !p.sizes.some(s => s.size === sel.bs[i])) delete sel.bs[i];
+      if (!sel.bs[i] && p.sizes.length === 1) sel.bs[i] = p.sizes[0].size;
+    });
+    step2 = `<div class="card"><h2>2. Skład zestawu</h2>` + items.map(({it,p,i}) => `
+      <div class="bitem"><div class="bname">${T(p).icon} ${esc(p.name)}${+it.qty>1?` <span class="muted">× ${it.qty}</span>`:''}
+        ${sel.bs[i] ? `<span class="okmark">✓ ${esc(sel.bs[i])}</span>` : ''}</div>
+        ${p.sizes.length > 1 ? `<div class="sizes">${sizeButtons(p, sel.bs[i], `pickBSize.bind(null,${i})`)}</div>` :
+          `<p class="muted" style="margin:4px 0 0">zostało ${left(p, p.sizes[0] && p.sizes[0].size)}</p>`}
+      </div>`).join('') + `</div>`;
+    ready = items.every(({i}) => sel.bs[i]);
+    label = ready ? `Sprzedaj ${sel.qty} × 🎁 ${esc(b.name)}` : 'Wybierz rozmiary w zestawie';
+    price = sel.qty * (+b.price||0);
+  }
 
   const last = state.sales.slice(-5).reverse().map(saleRow).join('');
-
   el.innerHTML = `
     <div class="card"><h2>1. Produkt</h2>${chips}</div>
-    <div class="card"><h2>2. ${T(p).varLabel}</h2><div class="sizes">${sizes}</div></div>
-    <div class="card"><h2>3. Ilość</h2>
+    ${step2}
+    <div class="card"><h2>3. Ilość${sel.kind==='b'?' zestawów':''}</h2>
       <div class="qty"><button onclick="chQty(-1)">−</button><output>${sel.qty}</output><button onclick="chQty(1)">+</button></div>
     </div>
-    <button class="sell" ${sel.size?'':'disabled'} onclick="sell()">${label}</button>
-    ${price}
+    <button class="sell" ${ready?'':'disabled'} onclick="sell()">${label}</button>
+    ${price ? `<p class="muted" style="margin:8px 0 0;text-align:center">Do zapłaty: <b>${money(price)}</b></p>` : ''}
     ${last ? `<div class="card" style="margin-top:14px"><h2>Ostatnie sprzedaże</h2><ul class="hist">${last}</ul></div>` : ''}`;
 }
 
 function saleRow(s){
-  const p = prod(s.productId);
-  const name = (p ? T(p).icon + ' ' + p.name : (s.productName || '?'));
-  const tm = new Date(s.ts).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
-  const day = new Date(s.ts).toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
-  return `<li><div><b>${s.qty} × ${esc(name)} ${esc(s.size)}</b><time>${day} ${tm}</time></div>
+  const d = new Date(s.ts);
+  const when = d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
+  const detail = s.bundleId ? `<small class="muted" style="display:block">${s.lines.map(l => `${l.qty>1?l.qty+'× ':''}${esc(lineName(l))}`).join(', ')}</small>` : '';
+  return `<li><div><b>${esc(saleTitle(s))}</b>${detail}<time>${when}</time></div>
     <button class="btn small danger" onclick="delSale('${s.id}')">Usuń</button></li>`;
 }
 
@@ -213,30 +284,38 @@ function stockTable(st, p){
     const pct = a ? Math.min(100, Math.round(b/a*100)) : 0;
     return `<tr><td>${esc(s.size)}<div class="bar"><i style="width:${pct}%"></i></div></td><td>${a}</td><td>${b}</td><td class="left ${l<=0?'zero':''}">${l}</td></tr>`;
   }).join('');
-  const a = start(p), b = sold(st, p.id);
+  const a = start(p), b = sold(st, p.id), inB = sold(st, p.id, null, 'bundle'), single = b - inB;
+  const notes = [];
+  if (inB) notes.push(`w tym w zestawach: <b>${inB}</b>, pojedynczo: <b>${single}</b>`);
+  if (+p.price) notes.push(`przychód ze sprzedaży pojedynczej: <b>${money(single * p.price)}</b> (cena ${money(+p.price)})`);
   return `<table><tr><th>${T(p).varLabel}</th><th>Zabrane</th><th>Sprzed.</th><th>Zostało</th></tr>${rows}
     <tr class="total"><td>Razem</td><td>${a}</td><td>${b}</td><td class="left">${a-b}</td></tr></table>
-    ${+p.price ? `<p class="muted" style="margin:8px 0 0">Przychód: <b>${money(b * p.price)}</b> (cena ${money(+p.price)})</p>` : ''}`;
+    ${notes.map(n => `<p class="muted" style="margin:8px 0 0">${n}</p>`).join('')}`;
 }
 
 function renderStock(){
   const t = totals(state);
   let html = `<div class="stats">
-    <div class="stat"><b>${t.sold}</b><small>sprzedane</small></div>
-    <div class="stat"><b>${t.left}</b><small>zostało</small></div>
+    <div class="stat"><b>${t.sold}</b><small>sprzedane szt.</small></div>
+    <div class="stat"><b>${t.left}</b><small>zostało szt.</small></div>
     <div class="stat"><b>${t.rev ? money(t.rev) : '—'}</b><small>przychód</small></div></div>`;
   if (state.products.length) html += `<button class="sell" style="margin:0 0 14px" onclick="shareReport()">📤 Wyślij raport na czat</button>`;
   if (!state.products.length) html += `<div class="card empty">Brak produktów — dodaj je w Ustawieniach.</div>`;
+  if (state.bundles.length){
+    html += `<div class="card"><h2>🎁 Zestawy</h2><table><tr><th>Zestaw</th><th>Sprzed.</th><th>Przychód</th></tr>` +
+      state.bundles.map(b => { const n = bundleSold(state,b.id), r = bundleRev(state,b.id);
+        return `<tr><td>${esc(b.name)||'(zestaw)'}</td><td>${n}</td><td>${r?money(r):'—'}</td></tr>`; }).join('') + `</table>
+      <p class="muted" style="margin:8px 0 0">Produkty z zestawów są już odjęte ze stanów poniżej.</p></div>`;
+  }
   html += state.products.map(p => `<div class="card"><h2>${T(p).icon} ${esc(p.name)||'(bez nazwy)'}</h2>${stockTable(state,p)}</div>`).join('');
 
   if (state.others.length){
     html += `<h2 style="margin:22px 0 10px">Porównanie stoisk</h2>`;
-    const all = [{eventName: (state.eventName||'To stoisko') + ' (tu)', products: state.products, sales: state.sales, importedAt:null}, ...state.others];
+    const all = [{eventName: (state.eventName||'To stoisko') + ' (tu)', products: state.products, bundles: state.bundles, sales: state.sales, importedAt:null}, ...state.others];
     html += `<div class="card"><table><tr><th>Stoisko</th><th>Sprzed.</th><th>Zostało</th><th>Przychód</th></tr>` +
       all.map(o => { const x = totals(o); return `<tr><td>${esc(o.eventName||'?')}${o.importedAt?`<br><small class="muted">dane z ${new Date(o.importedAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small>`:''}</td><td>${x.sold}</td><td>${x.left}</td><td>${x.rev?money(x.rev):'—'}</td></tr>`; }).join('') +
       (() => { let s=0,l=0,r=0; all.forEach(o=>{const x=totals(o);s+=x.sold;l+=x.left;r+=x.rev;}); return `<tr class="total"><td>Razem</td><td>${s}</td><td>${l}</td><td>${r?money(r):'—'}</td></tr>`; })() +
       `</table></div>`;
-    // łącznie wg koszulki i rozmiaru
     const map = new Map();
     all.forEach(o => o.products.forEach(p => p.sizes.forEach(s => {
       const k = (p.name||'').trim().toLowerCase() + '|' + s.size;
@@ -271,10 +350,28 @@ function renderSet(){
       ${p.sizes.map((s,i) => `<div class="srow">
         <input type="text" value="${esc(s.size)}" onchange="setSize('${p.id}',${i},'size',this.value)">
         <input type="number" min="0" inputmode="numeric" value="${esc(s.qty)}" onchange="setSize('${p.id}',${i},'qty',this.value)">
-        <button class="x" title="Usuń rozmiar" onclick="delSize('${p.id}',${i})">×</button></div>`).join('')}
+        <button class="x" title="Usuń" onclick="delSize('${p.id}',${i})">×</button></div>`).join('')}
       <div class="btns" style="margin-top:8px">
         <button class="btn small" onclick="addSize('${p.id}')">+ ${T(p).varLabel}</button>
         <button class="btn small danger" onclick="delProd('${p.id}')">Usuń produkt</button>
+      </div>
+    </div>`).join('');
+
+  const opts = cur => state.products.map(p => `<option value="${p.id}" ${p.id===cur?'selected':''}>${T(p).icon} ${esc(p.name)||'(bez nazwy)'}</option>`).join('');
+  const bundles = state.bundles.map(b => `
+    <div class="prod">
+      <div class="grid2">
+        <div><label>🎁 Nazwa zestawu</label><input type="text" value="${esc(b.name)}" placeholder="np. Zestaw Start" onchange="setBundle('${b.id}','name',this.value)"></div>
+        <div><label>Cena zestawu (zł)</label><input type="number" min="0" step="0.01" inputmode="decimal" value="${esc(b.price)}" placeholder="opcjonalnie" onchange="setBundle('${b.id}','price',this.value)"></div>
+      </div>
+      <div class="srow brow"><label style="margin:0">Produkt w zestawie</label><label style="margin:0">Szt.</label><span></span></div>
+      ${b.items.map((it,i) => `<div class="srow brow">
+        <select onchange="setBItem('${b.id}',${i},'productId',this.value)">${prod(it.productId)?'':'<option selected>(usunięty produkt)</option>'}${opts(it.productId)}</select>
+        <input type="number" min="1" inputmode="numeric" value="${esc(it.qty)}" onchange="setBItem('${b.id}',${i},'qty',this.value)">
+        <button class="x" title="Usuń z zestawu" onclick="delBItem('${b.id}',${i})">×</button></div>`).join('')}
+      <div class="btns" style="margin-top:8px">
+        <button class="btn small" onclick="addBItem('${b.id}')">+ Produkt do zestawu</button>
+        <button class="btn small danger" onclick="delBundle('${b.id}')">Usuń zestaw</button>
       </div>
     </div>`).join('');
 
@@ -292,6 +389,11 @@ function renderSet(){
       </div>
       <p class="muted" style="margin-bottom:0">Suplementy: każdy wariant (smak, gramatura) liczy się osobno. Jeśli nie ma wariantów, zostaw jeden „Standard”.</p>
     </div>
+    <div class="card"><h2>🎁 Zestawy</h2>
+      ${bundles || '<p class="muted">Zestaw to kilka produktów sprzedawanych razem. Sprzedaż zestawu odejmuje ze stanu każdy produkt z zestawu.</p>'}
+      <button class="btn primary" onclick="addBundle()">+ 🎁 Zestaw</button>
+      <p class="muted" style="margin-bottom:0">Rozmiar koszulki / wariant suplementu w zestawie wybiera się przy sprzedaży. Zestawy nie mają własnego stanu — liczy się stan produktów.</p>
+    </div>
     <div class="card"><h2>Drugie stoisko</h2>
       <p class="muted" style="margin-top:0">Wyślij plik ze stanem drugiemu stoisku (najlepiej przez WhatsAppa jako dokument lub mailem), a oni wczytują go u siebie — w zakładce „Stan” zobaczycie porównanie i sumę.</p>
       <div class="btns">
@@ -305,7 +407,7 @@ function renderSet(){
         <button class="btn primary" onclick="shareReport()">📤 Raport tekstowy na czat</button>
         <button class="btn" onclick="csvStock()">Raport stanu (CSV/Excel)</button>
         <button class="btn" onclick="csvSales()">Historia sprzedaży (CSV)</button>
-        <button class="btn" onclick="download(fileName('json'), JSON.stringify(exportObj(),null,2), 'application/json')">Kopia zapasowa</button>
+        <button class="btn" onclick="download(fileName('txt'), JSON.stringify(exportObj(),null,2), 'text/plain')">Kopia zapasowa</button>
         <button class="btn" onclick="$('fileRestore').click()">Przywróć kopię</button>
       </div>
     </div>
@@ -319,39 +421,59 @@ function renderSet(){
 
 /* ---------- akcje: sprzedaż ---------- */
 function go(v){ view = v; render(); window.scrollTo(0,0); }
-function pickProd(id){ sel = {pid:id, size:null, qty:1}; render(); }
+function pickProd(id){ sel = {kind:'p', id, size:null, qty:1, bs:{}}; render(); }
+function pickBundle(id){ sel = {kind:'b', id, size:null, qty:1, bs:{}}; render(); }
 function pickSize(s){ sel.size = s; render(); }
+function pickBSize(i, s){ sel.bs[i] = s; render(); }
 function chQty(d){ sel.qty = Math.max(1, sel.qty + d); render(); }
 function sell(){
-  const p = prod(sel.pid); if (!p || !sel.size) return;
-  const l = left(p, sel.size);
-  if (sel.qty > l && !confirm(`Według licznika zostało tylko ${l} szt. ${p.name} ${sel.size}. Zapisać sprzedaż mimo to?`)) return;
-  const s = {id:uid(), ts:Date.now(), productId:p.id, productName:p.name, size:sel.size, qty:sel.qty};
+  let s;
+  if (sel.kind === 'p'){
+    const p = prod(sel.id); if (!p || !sel.size) return;
+    s = {id:uid(), ts:Date.now(), lines:[{productId:p.id, productName:p.name, size:sel.size, qty:sel.qty}]};
+  } else {
+    const b = bundle(sel.id); if (!b) return;
+    const lines = [];
+    for (let i = 0; i < b.items.length; i++){
+      const it = b.items[i], p = prod(it.productId); if (!p) continue;
+      if (!sel.bs[i]) return;
+      lines.push({productId:p.id, productName:p.name, size:sel.bs[i], qty:(+it.qty||1) * sel.qty});
+    }
+    if (!lines.length) return;
+    s = {id:uid(), ts:Date.now(), bundleId:b.id, bundleName:b.name, qty:sel.qty, price:b.price, lines};
+  }
+  // kontrola stanu (ten sam produkt/rozmiar może wystąpić kilka razy w zestawie)
+  const need = {};
+  s.lines.forEach(l => { const k = l.productId + '|' + l.size; need[k] = (need[k]||0) + l.qty; });
+  const short = Object.entries(need).map(([k,n]) => { const [pid,size] = k.split('|'); const p = prod(pid); const l = left(p,size);
+    return n > l ? `${p.name} ${vn(size)}: zostało ${l}, potrzeba ${n}` : null; }).filter(Boolean);
+  if (short.length && !confirm('Według licznika brakuje:\n' + short.join('\n') + '\n\nZapisać sprzedaż mimo to?')) return;
+
   state.sales.push(s); save();
   if (navigator.vibrate) navigator.vibrate(40);
-  sel.qty = 1; sel.size = null; render();
-  toast(`✅ Sprzedano ${s.qty} × ${p.name} ${s.size==='Standard'?'':s.size}`, () => { state.sales = state.sales.filter(x => x.id !== s.id); save(); render(); toast('Cofnięto'); });
+  sel.qty = 1; sel.size = null; sel.bs = {}; render();
+  toast(`✅ Sprzedano ${saleTitle(s)}`, () => { state.sales = state.sales.filter(x => x.id !== s.id); save(); render(); toast('Cofnięto'); });
 }
 function delSale(id){
   const s = state.sales.find(x => x.id === id); if (!s) return;
-  if (!confirm(`Usunąć sprzedaż: ${s.qty} × ${(prod(s.productId)||{}).name||s.productName} ${s.size}?`)) return;
+  if (!confirm(`Usunąć sprzedaż: ${saleTitle(s)}?`)) return;
   state.sales = state.sales.filter(x => x.id !== id); save(); render();
 }
 
 /* ---------- akcje: ustawienia ---------- */
+function focusLast(sel){ const els = document.querySelectorAll(sel); if (els.length) els[els.length-1].focus(); }
 function addProd(type){
   state.products.push({id:uid(), type, name:'', price:'', sizes: TYPES[type].defaults.map(s => ({size:s, qty:0}))});
-  save(); render();
-    const lastProd = document.querySelectorAll('.prod'); if (lastProd.length) lastProd[lastProd.length-1].querySelector('input').focus();
+  save(); render(); focusLast('#v-set .card:nth-of-type(2) .prod .grid2 input[type=text]');
 }
-function setProd(id, k, v){ const p = prod(id); if (!p) return; p[k] = k==='price' ? (v===''?'':Math.max(0,+v)) : v.trim(); save(); $('hTitle'); }
+function setProd(id, k, v){ const p = prod(id); if (!p) return; p[k] = k==='price' ? (v===''?'':Math.max(0,+v)) : v.trim(); save(); }
 function setSize(id, i, k, v){
   const p = prod(id); if (!p) return;
   if (k === 'size'){
     v = v.trim(); const old = p.sizes[i].size; if (!v || v === old) return render();
     if (p.sizes.some((s,j) => j!==i && s.size === v)){ alert('Taki ' + T(p).varLabel.toLowerCase() + ' już jest.'); return render(); }
     p.sizes[i].size = v;
-    state.sales.forEach(s => { if (s.productId === id && s.size === old) s.size = v; });
+    state.sales.forEach(s => s.lines.forEach(l => { if (l.productId === id && l.size === old) l.size = v; }));
   } else p.sizes[i].qty = Math.max(0, parseInt(v,10) || 0);
   save();
 }
@@ -362,9 +484,35 @@ function delSize(id, i){ const p = prod(id); const s = p.sizes[i];
   if (sold(state, id, s.size) && !confirm(`${T(p).varLabel} ${s.size} ma zapisaną sprzedaż. Usunąć mimo to?`)) return;
   p.sizes.splice(i,1); save(); render(); }
 function delProd(id){ const p = prod(id);
-  if (!confirm(`Usunąć ${T(p).name.toLowerCase()} „${p.name||'(bez nazwy)'}”${sold(state,id)?' razem z jej sprzedażą':''}?`)) return;
-  state.products = state.products.filter(x => x.id !== id); state.sales = state.sales.filter(s => s.productId !== id); save(); render(); }
-function resetSales(){ if (confirm('Wyzerować całą sprzedaż? Stany początkowe zostaną.')){ state.sales = []; save(); render(); } }
+  const inBundles = state.bundles.filter(b => b.items.some(it => it.productId === id)).map(b => b.name || '(zestaw)');
+  let msg = `Usunąć ${T(p).name.toLowerCase()} „${p.name||'(bez nazwy)'}”${sold(state,id)?' razem z jej sprzedażą':''}?`;
+  if (inBundles.length) msg += `\nZostanie też usunięty z zestawów: ${inBundles.join(', ')}.`;
+  if (!confirm(msg)) return;
+  state.products = state.products.filter(x => x.id !== id);
+  state.bundles.forEach(b => b.items = b.items.filter(it => it.productId !== id));
+  state.sales.forEach(s => s.lines = s.lines.filter(l => l.productId !== id));
+  state.sales = state.sales.filter(s => s.lines.length);
+  save(); render(); }
+
+function addBundle(){
+  if (!state.products.length) return alert('Najpierw dodaj produkty, z których będzie się składał zestaw.');
+  state.bundles.push({id:uid(), name:'', price:'', items:[{productId:state.products[0].id, qty:1}]});
+  save(); render(); focusLast('#v-set .card:nth-of-type(3) .prod .grid2 input[type=text]');
+}
+function setBundle(id, k, v){ const b = bundle(id); if (!b) return; b[k] = k==='price' ? (v===''?'':Math.max(0,+v)) : v.trim(); save(); }
+function setBItem(id, i, k, v){ const b = bundle(id); if (!b) return;
+  b.items[i][k] = k === 'qty' ? Math.max(1, parseInt(v,10) || 1) : v; save(); if (k === 'productId') render(); }
+function addBItem(id){ const b = bundle(id); const used = b.items.map(it => it.productId);
+  const next = state.products.find(p => !used.includes(p.id)) || state.products[0];
+  b.items.push({productId:next.id, qty:1}); save(); render(); }
+function delBItem(id, i){ const b = bundle(id); if (b.items.length === 1) return alert('Zestaw musi mieć co najmniej jeden produkt. Możesz usunąć cały zestaw.');
+  b.items.splice(i,1); save(); render(); }
+function delBundle(id){ const b = bundle(id);
+  const n = bundleSold(state, id);
+  if (!confirm(`Usunąć zestaw „${b.name||'(zestaw)'}”?` + (n ? `\nSprzedane zestawy (${n}) zostaną w historii i dalej będą odjęte ze stanu.` : ''))) return;
+  state.bundles = state.bundles.filter(x => x.id !== id); save(); render(); }
+
+function resetSales(){ if (confirm('Wyzerować całą sprzedaż? Stany początkowe i zestawy zostaną.')){ state.sales = []; save(); render(); } }
 function resetAll(){ if (confirm('Usunąć WSZYSTKIE dane z tego urządzenia?') && confirm('Na pewno? Tego nie da się cofnąć.')){ state = blank(); save(); render(); } }
 
 /* ---------- raport tekstowy ---------- */
@@ -372,8 +520,14 @@ function reportText(){
   const t = totals(state); const d = new Date();
   let out = `📊 ${state.eventName || 'Stoisko'} — ${d.toLocaleDateString('pl-PL')} ${d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}\n`;
   out += `Sprzedane: ${t.sold} szt. | Zostało: ${t.left} szt.` + (t.rev ? ` | Przychód: ${money(t.rev)}` : '') + '\n';
+  const bs = state.bundles.filter(b => bundleSold(state,b.id));
+  if (bs.length){
+    out += `\n🎁 Zestawy:\n`;
+    bs.forEach(b => { const r = bundleRev(state,b.id); out += `  ${b.name || '(zestaw)'}: ${bundleSold(state,b.id)} szt.${r ? ' — ' + money(r) : ''}\n`; });
+  }
   state.products.forEach(p => {
-    out += `\n${T(p).icon} ${p.name || '(bez nazwy)'} — sprzedane ${sold(state,p.id)}/${start(p)}\n`;
+    const inB = sold(state,p.id,null,'bundle');
+    out += `\n${T(p).icon} ${p.name || '(bez nazwy)'} — sprzedane ${sold(state,p.id)}/${start(p)}${inB ? ` (w zestawach ${inB})` : ''}\n`;
     p.sizes.forEach(s => { const b = sold(state,p.id,s.size), a = +s.qty||0;
       if (a || b) out += `  ${s.size}: sprzedane ${b}, zostało ${a-b}${a-b<=0?' ❗':''}\n`; });
   });
@@ -388,9 +542,9 @@ async function shareReport(){
 }
 
 /* ---------- pliki ---------- */
-function exportObj(){ return {app:'licznik-koszulek', version:1, exportedAt:Date.now(), eventName:state.eventName, products:state.products, sales:state.sales}; }
+function exportObj(){ return {app:'licznik-koszulek', version:2, exportedAt:Date.now(), eventName:state.eventName, products:state.products, bundles:state.bundles, sales:state.sales}; }
 function fileName(ext){
-  const n = (state.eventName || 'stoisko').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ł/g,'l').replace(/Ł/g,'L').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
+  const n = (state.eventName || 'stoisko').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/ł/g,'l').replace(/Ł/g,'L').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
   const d = new Date(); const pad = x => String(x).padStart(2,'0');
   return `sprzedaz-${n}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
 }
@@ -407,32 +561,39 @@ async function shareState(){
   } catch(e){ if (e && e.name === 'AbortError') return; }
   download(name, text, 'text/plain'); toast('Plik pobrany — wyślij go drugiemu stoisku');
 }
-function csv(rows){ return '\ufeff' + rows.map(r => r.map(c => { c = String(c ?? ''); return /[;"\n]/.test(c) ? '"' + c.replace(/"/g,'""') + '"' : c; }).join(';')).join('\r\n'); }
+function csv(rows){ return '﻿' + rows.map(r => r.map(c => { c = String(c ?? ''); return /[;"\n]/.test(c) ? '"' + c.replace(/"/g,'""') + '"' : c; }).join(';')).join('\r\n'); }
+const num = n => n === '' || n == null ? '' : String(Math.round(n*100)/100).replace('.',',');
 function csvStock(){
-  const rows = [['Stoisko','Kategoria','Produkt','Rozmiar/wariant','Zabrane','Sprzedane','Zostało','Cena','Przychód']];
+  const rows = [['Stoisko','Kategoria','Produkt','Rozmiar/wariant','Zabrane','Sprzedane','w tym w zestawach','Zostało','Cena']];
   state.products.forEach(p => p.sizes.forEach(s => { const b = sold(state,p.id,s.size);
-    rows.push([state.eventName, T(p).name, p.name, s.size, +s.qty||0, b, (+s.qty||0)-b, p.price, +p.price ? String(b*p.price).replace('.',',') : '']); }));
+    rows.push([state.eventName, T(p).name, p.name, s.size, +s.qty||0, b, sold(state,p.id,s.size,'bundle'), (+s.qty||0)-b, num(p.price)]); }));
+  if (state.bundles.length){
+    rows.push([]); rows.push(['Stoisko','Zestaw','Sprzedane zestawy','Przychód']);
+    state.bundles.forEach(b => rows.push([state.eventName, b.name, bundleSold(state,b.id), num(bundleRev(state,b.id))]));
+  }
   download(fileName('csv').replace('.csv','-stan.csv'), csv(rows), 'text/csv;charset=utf-8');
 }
 function csvSales(){
-  const rows = [['Data','Godzina','Stoisko','Kategoria','Produkt','Rozmiar/wariant','Ilość','Wartość']];
-  state.sales.forEach(s => { const p = prod(s.productId); const d = new Date(s.ts);
-    rows.push([d.toLocaleDateString('pl-PL'), d.toLocaleTimeString('pl-PL'), state.eventName, p?T(p).name:'', p?p.name:s.productName, s.size, s.qty, p && +p.price ? String(s.qty*p.price).replace('.',',') : '']); });
+  const rows = [['Data','Godzina','Stoisko','Zestaw','Kategoria','Produkt','Rozmiar/wariant','Ilość','Wartość sprzedaży']];
+  state.sales.forEach(s => { const d = new Date(s.ts); const b = s.bundleId ? (bundle(s.bundleId) || {name:s.bundleName}) : null;
+    s.lines.forEach((l,i) => { const p = prod(l.productId);
+      rows.push([d.toLocaleDateString('pl-PL'), d.toLocaleTimeString('pl-PL'), state.eventName, b ? `${b.name} (×${s.qty||1})` : '',
+        p?T(p).name:'', p?p.name:l.productName, l.size, l.qty, i === 0 ? num(saleValue(state,s)) : '']); }); });
   download(fileName('csv').replace('.csv','-historia.csv'), csv(rows), 'text/csv;charset=utf-8');
 }
-function readJson(file){ return file.text().then(t => { const o = JSON.parse(t); if (!o || !Array.isArray(o.products) || !Array.isArray(o.sales)) throw new Error('zły plik'); return o; }); }
+function readJson(file){ return file.text().then(t => { const o = JSON.parse(t); if (!o || !Array.isArray(o.products) || !Array.isArray(o.sales)) throw new Error('zły plik'); return normalize(o); }); }
 $('fileRestore').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try { const o = await readJson(f);
     if (!confirm(`Przywrócić kopię „${o.eventName||'?'}”? Obecne dane tego stoiska zostaną zastąpione.`)) return;
-    state.eventName = o.eventName || ''; state.products = o.products; state.sales = o.sales; save(); render(); toast('Przywrócono kopię');
+    state.eventName = o.eventName || ''; state.products = o.products; state.bundles = o.bundles; state.sales = o.sales; save(); render(); toast('Przywrócono kopię');
   } catch(err){ alert('Nie udało się wczytać pliku: ' + err.message); }
 };
 $('fileOther').onchange = async e => {
   const files = [...e.target.files]; e.target.value = '';
   for (const f of files){
     try { const o = await readJson(f);
-      const entry = {eventName:o.eventName||f.name, products:o.products, sales:o.sales, importedAt:o.exportedAt||Date.now()};
+      const entry = {eventName:o.eventName||f.name, products:o.products, bundles:o.bundles, sales:o.sales, importedAt:o.exportedAt||Date.now()};
       const i = state.others.findIndex(x => x.eventName === entry.eventName);
       if (i >= 0) state.others[i] = entry; else state.others.push(entry);
     } catch(err){ alert(`Nie udało się wczytać ${f.name}: ${err.message}`); }
